@@ -100,7 +100,7 @@ module XapianFu #:nodoc:
   #
   class XapianDb # :nonew:
     # Path to the on-disk database. Nil if in-memory database
-    attr_reader :dir 
+    attr_reader :dir
     attr_reader :db_flag #:nodoc:
     # An array of the fields that will be stored in the Xapian
     attr_reader :store_values
@@ -112,6 +112,8 @@ module XapianFu #:nodoc:
     attr_reader :fields
     # An array of fields that will not be indexed
     attr_reader :unindexed_fields
+    # An array of fields that will be treated as boolean terms
+    attr_reader :boolean_fields
     # Whether this db will generate a spelling dictionary during indexing
     attr_reader :spelling
     attr_reader :sortable_fields
@@ -130,7 +132,7 @@ module XapianFu #:nodoc:
       setup_fields(@options[:fields])
       @store_values << @options[:store]
       @store_values << @options[:sortable]
-      @store_values << @options[:collapsible]      
+      @store_values << @options[:collapsible]
       @store_values = @store_values.flatten.uniq.compact
       @spelling = @options[:spelling]
     end
@@ -195,10 +197,10 @@ module XapianFu #:nodoc:
     #
     # The <tt>:page</tt> option sets which page of results to return.
     # Defaults to 1.
-    # 
+    #
     # The <tt>:order</tt> option specifies the stored field to order
     # the results by (instead of the default search result weight).
-    # 
+    #
     # The <tt>:reverse</tt> option reverses the order of the results,
     # so lowest search weight first (or lowest stored field value
     # first).
@@ -215,7 +217,7 @@ module XapianFu #:nodoc:
     #
     # For additional options on how the query is parsed, see
     # XapianFu::QueryParser
-    
+
     def search(q, options = {})
       defaults = { :page => 1, :reverse => false,
         :boolean => true, :boolean_anycase => true, :wildcards => true,
@@ -228,6 +230,20 @@ module XapianFu #:nodoc:
       offset = page * per_page
       qp = XapianFu::QueryParser.new({ :database => self }.merge(options))
       query = qp.parse_query(q.to_s)
+
+      if options[:filter]
+        filter_queries = options[:filter].map do |field, values|
+          combined_values = Array(values).map do |value|
+            Xapian::Query.new("X#{field.to_s.upcase}#{value.to_s.downcase}")
+          end
+
+          Xapian::Query.new(Xapian::Query::OP_OR, combined_values)
+        end
+
+        combined_filter_query = Xapian::Query.new(Xapian::Query::OP_AND, filter_queries)
+        query = Xapian::Query.new(Xapian::Query::OP_FILTER, query, combined_filter_query)
+      end
+
       enquiry = Xapian::Enquire.new(ro)
       setup_ordering(enquiry, options[:order], options[:reverse])
       if options[:collapse]
@@ -317,12 +333,17 @@ module XapianFu #:nodoc:
       @unindexed_fields = []
       @store_values = []
       @sortable_fields = {}
+      @boolean_fields = []
       return nil if field_options.nil?
       default_opts = {
         :store => true,
         :index => true,
         :type => String
       }
+      boolean_default_opts = default_opts.merge(
+        :store => false,
+        :index => false
+      )
       # Convert array argument to hash, with String as default type
       if field_options.is_a? Array
         fohash = { }
@@ -332,16 +353,21 @@ module XapianFu #:nodoc:
       field_options.each do |name,opts|
         # Handle simple setup by type only
         opts = { :type => opts } unless opts.is_a? Hash
-        opts = default_opts.merge(opts)
+        if opts[:boolean]
+          opts = boolean_default_opts.merge(opts)
+        else
+          opts = default_opts.merge(opts)
+        end
         @store_values << name if opts[:store]
         @sortable_fields[name] = {:range_prefix => opts[:range_prefix], :range_postfix => opts[:range_postfix]} if opts[:sortable]
         @unindexed_fields << name if opts[:index] == false
+        @boolean_fields << name if opts[:boolean]
         @fields[name] = opts[:type]
       end
       @fields
     end
-    
+
   end
-  
+
 end
 

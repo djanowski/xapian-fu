@@ -49,15 +49,15 @@ module XapianFu #:nodoc:
   # or false.
   #
   class QueryParser #:notnew:
-    
+
     # The stemming strategy to use when generating terms from a query.
     # Defaults to <tt>:some</tt>
     attr_accessor :stemming_strategy
-    
+
     # The default operation when combining search terms.  Defaults to
     # <tt>:and</tt>
     attr_accessor :default_op
-    
+
     # The database that this query is agains, used for setting up
     # fields, stemming, stopping and spelling.
     attr_accessor :database
@@ -93,9 +93,15 @@ module XapianFu #:nodoc:
         qp.stemmer = database.stemmer if database
         qp.default_op = xapian_default_op
         qp.stemming_strategy = xapian_stemming_strategy
+
         fields.each do |name, type|
+          next if database && database.boolean_fields.include?(name)
           qp.add_prefix(name.to_s.downcase, "X" + name.to_s.upcase)
         end
+
+        database.boolean_fields.each do |name|
+          qp.add_boolean_prefix(name.to_s.downcase, "X#{name.to_s.upcase}")
+        end if database
 
         database.sortable_fields.each do |field, opts|
           if opts[:range_prefix]
