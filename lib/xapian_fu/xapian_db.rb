@@ -267,6 +267,11 @@ module XapianFu #:nodoc:
 
       qp = XapianFu::QueryParser.new({ :database => self }.merge(options))
       query = qp.parse_query(q.is_a?(Symbol) ? q : q.to_s)
+
+      if options.include?(:query_builder)
+        query = options[:query_builder].call(query)
+      end
+
       query = filter_query(query, options[:filter]) if options[:filter]
       enquiry = Xapian::Enquire.new(ro)
       setup_ordering(enquiry, options[:order], options[:reverse])
